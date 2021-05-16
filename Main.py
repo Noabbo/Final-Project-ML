@@ -71,10 +71,10 @@ camEntrance = cv2.VideoCapture(2)
 isNoMask = True
 hasEntered = False
 connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-maskChannel = connection.channel()
-maskChannel.queue_declare(queue='Mask Detection')
-channel = connection.channel()
-channel.queue_declare(queue='Costumer Detection')
+channelOut = connection.channel()
+channelOut.queue_declare(queue='exited')
+channelIn = connection.channel()
+channelIn.queue_declare(queue='entered')
 while True:
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
     if hasFrontOutFrame:
@@ -99,12 +99,10 @@ while True:
             if mask == "No Mask" and isNoMask:
                 isNoMask = False
                 isAllMask = False
-                maskChannel.basic_publish(exchange='', routing_key='Mask Detection', body="No Mask")
                 break
         # All people are with masks - corrected the situation
         if isAllMask and not isNoMask:
             isAllMask = True
-            maskChannel.basic_publish(exchange='', routing_key='Mask Detection', body="All with Mask")
     
     hasFrontInFrame, frontInFrame = camFrontIn.read()
     if hasFrontInFrame:
