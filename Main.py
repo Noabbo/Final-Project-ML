@@ -3,10 +3,43 @@ from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array
 from cv2 import cv2
 import numpy as np
-import argparse
+import imutils
 import pika
 import Age_Gender_Training
+import Centroid_Tracker
+import Trackable_Object
 
+
+faceProto = "face_detector/opencv_face_detector.pbtxt"
+faceModel = "face_detector/opencv_face_detector_uint8.pb"
+maskModel = "mask_detector/mask_detector.model"
+entryProto = "entry_detector/MobileNetSSD_deploy.prototxt"
+entryModel = "entry_detector/MobileNetSSD_deploy.caffemodel"
+
+ageList = ['(0-2)', '(4-6)', '(8-12)', '(15-20)', '(25-32)', '(38-43)', '(48-53)', '(60-100)']
+genderList = ['Male', 'Female']
+classesList = ["background", "aeroplane", "bicycle", "bird", "boat",
+    "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+    "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+    "sofa", "train", "tvmonitor"]
+
+faceNet = cv2.dnn.readNet(faceModel, faceProto)
+ageNet = Age_Gender_Training.age_model()
+genderNet = Age_Gender_Training.gender_model()
+maskNet = load_model(maskModel)
+entryNet = cv2.dnn.readNetFromCaffe(entryProto, entryModel)
+SKIP_FRAMES = 30
+prevOutFrames = []
+prevInFrames = []
+hasEntered = False
+ct = Centroid_Tracker(maxDisappeared=40, maxDistance=50)
+trackers = []
+trackableObjects = {}
+totalFrames = 0
+totalDown = 0
+totalUp = 0
+H = None
+W = None
 
 def highlightFace(net, frame, conf_threshold=0.7):
     frameOpencvDnn = frame.copy()
@@ -45,86 +78,81 @@ def highlightFace(net, frame, conf_threshold=0.7):
                           (0, 255, 0), int(round(frameHeight/150)), 8)
     return frameOpencvDnn, faceBoxes, faces
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--image')
-args = parser.parse_args()
-
-faceProto = "face_detector/opencv_face_detector.pbtxt"
-faceModel = "face_detector/opencv_face_detector_uint8.pb"
-maskModel = "mask_detector/mask_detector.model"
-
-MODEL_MEAN_VALUES = (78.4263377603, 87.7689143744, 114.895847746)
-ageList = ['(0-2)', '(4-6)', '(8-12)', '(15-20)',
-           '(25-32)', '(38-43)', '(48-53)', '(60-100)']
-genderList = ['Male', 'Female']
-
-faceNet = cv2.dnn.readNet(faceModel, faceProto)
-ageNet = Age_Gender_Training.age_model()
-genderNet = Age_Gender_Training.gender_model()
-maskNet = load_model(maskModel)
-
-prevOutFrames = []
-prevInFrames = []
 camFrontOut = cv2.VideoCapture(0)
 camFrontIn = cv2.VideoCapture(1)
 camEntrance = cv2.VideoCapture(2)
-isNoMask = True
-hasEntered = False
 connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-channelOut = connection.channel()
-channelOut.queue_declare(queue='exited')
-channelIn = connection.channel()
-channelIn.queue_declare(queue='entered')
+channelExit = connection.channel()
+channelExit.queue_declare(queue='exited')
+channelEnter = connection.channel()
+channelEnter.queue_declare(queue='entered')
 while True:
+    # Frontal Camera towards Outside
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
     if hasFrontOutFrame:
-        resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
-        if not faceBoxes:
-            print("No face detected from outside")
-            continue
-
-        # Save frame for later use
-        prevOutFrames.append(frontOutFrame)
-        # Detect if people in line wearing masks or not
-        faces = np.array(faces, dtype="float32")
-        maskPreds = maskNet.predict(faces, batch_size=32)
-        isAllMask = True
-        for maskPred, faceBox in zip(maskPreds, faceBoxes):
-            (mask, withoutMask) = maskPred
-            mask = "Mask" if mask > withoutMask else "No Mask"
-            # cv2.putText(resultImg, f'{mask}', (faceBox[0], faceBox[1]-10),
-            # cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2, cv2.LINE_AA)
-            # cv2.imshow("LIVE", resultImg)
-            # Identifies person with no mask
-            if mask == "No Mask" and isNoMask:
-                isNoMask = False
-                isAllMask = False
-                break
-        # All people are with masks - corrected the situation
-        if isAllMask and not isNoMask:
-            isAllMask = True
+        # Detect every one second
+        if totalFrames % SKIP_FRAMES == 0:
+            # Save frame for later use
+            prevOutFrames.append(frontOutFrame)
+            # Find faces for mask detection
+            resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
+            if faceBoxes and faces:
+                # Detect if people in line wearing masks or not
+                faces = np.array(faces, dtype="float32")
+                maskPreds = maskNet.predict(faces, batch_size=32)
+                facesNoMask = []
+                for maskPred, faceBox in zip(maskPreds, faceBoxes):
+                    (mask, withoutMask) = maskPred
+                    mask = "Mask" if mask > withoutMask else "No Mask"
+                    # cv2.putText(resultImg, f'{mask}', (faceBox[0], faceBox[1]-10),
+                    # cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2, cv2.LINE_AA)
+                    # cv2.imshow("LIVE", resultImg)
+                    # Identifies person with no mask
+                    if mask == "No Mask":
+                        facesNoMask.append(faceBox)
+                # TODO: send faces with no mask to server
     
+    # Frontal Camera towards Inside
     hasFrontInFrame, frontInFrame = camFrontIn.read()
     if hasFrontInFrame:
-        resultImg, faceBoxes, faces = highlightFace(faceNet, frontInFrame)
-        if not faceBoxes:
-            print("No face detected from inside")
-            continue
-        # Save frame for later use
-        prevOutFrames.append(frontInFrame)
+        # Detect every one second
+        if totalFrames % SKIP_FRAMES == 0:
+            # Save frame for later use
+            prevOutFrames.append(frontInFrame)
     
-    # TODO: detect and track if entered the store - if yes, find gender and age
+    # Entrance/Exit Camera
+    hasEnteranceFrame, enteranceFrame = camEntrance.read()
+    if hasEnteranceFrame:
+        enteranceFrame = imutils.resize(enteranceFrame, width=500)
+        rgb = cv2.cvtColor(enteranceFrame, cv2.COLOR_BGR2RGB)
+        rects = []
+        # if the frame dimensions are empty, set them
+        if W is None or H is None:
+            (H, W) = enteranceFrame.shape[:2]
+        # Detect every one second
+        if totalFrames % SKIP_FRAMES == 0:
+            trackers = []
+            # convert the frame to a blob and pass the blob through the
+            # network and obtain the detections
+            blob = cv2.dnn.blobFromImage(enteranceFrame, 0.007843, (W, H), 127.5)
+            entryNet.setInput(blob)
+            detections = entryNet.forward()
+            # TODO: detect and track if entered the store - if yes, find gender and age
     
-    # Save only five seconds of frames
-    if len(prevOutFrames) > (28 * 5):
+    # Save only 10 seconds of frames
+    if len(prevOutFrames) > 10:
         prevOutFrames.clear()
-    if len(prevInFrames) > (28 * 5):
+    if len(prevInFrames) > 10:
         prevInFrames.clear()
+    
+    totalFrames += 1
 
     k = cv2.waitKey(30) & 0xff
     if k == 27:
         break
 
 camFrontOut.release()
+camFrontIn.release()
+camEntrance.release()
 connection.close()
 cv2.destroyAllWindows()
