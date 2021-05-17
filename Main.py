@@ -4,6 +4,7 @@ from tensorflow.keras.preprocessing.image import img_to_array
 from cv2 import cv2
 import numpy as np
 import imutils
+import dlib
 import pika
 import Age_Gender_Training
 import Centroid_Tracker
@@ -137,7 +138,37 @@ while True:
             blob = cv2.dnn.blobFromImage(enteranceFrame, 0.007843, (W, H), 127.5)
             entryNet.setInput(blob)
             detections = entryNet.forward()
-            # TODO: detect and track if entered the store - if yes, find gender and age
+            # loop over the detections
+            for i in np.arange(0, detections.shape[2]):
+                # extract the confidence (i.e., probability) associated
+                # with the prediction
+                confidence = detections[0, 0, i, 2]
+
+                # filter out weak detections by requiring a minimum
+                # confidence
+                if confidence > 0.4:
+                    # extract the index of the class label from the
+                    # detections list
+                    idx = int(detections[0, 0, i, 1])
+
+                    # if the class label is not a person, ignore it
+                    if classesList[idx] != "person":
+                        continue
+
+                    # compute the (x, y)-coordinates of the bounding box for the object
+                    box = detections[0, 0, i, 3:7] * np.array([W, H, W, H])
+                    (startX, startY, endX, endY) = box.astype("int")
+
+                    # construct a dlib rectangle object from the bounding
+                    # box coordinates and then start the dlib correlation
+                    # tracker
+                    tracker = dlib.correlation_tracker()
+                    rect = dlib.rectangle(startX, startY, endX, endY)
+                    tracker.start_track(rgb, rect)
+
+                    # add the tracker to our list of trackers so we can
+                    # utilize it during skip frames
+                    trackers.append(tracker)
     
     # Save only 10 seconds of frames
     if len(prevOutFrames) > 10:
