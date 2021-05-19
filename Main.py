@@ -1,6 +1,7 @@
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array
+from keras.preprocessing import image
 from cv2 import cv2
 import numpy as np
 import imutils
@@ -10,14 +11,14 @@ import Age_Gender_Training
 import Centroid_Tracker
 import Trackable_Object
 
-
+HAAR_FACE_DETECTOR = cv2.CascadeClassifier('./haarcascade_frontalface_default.xml')
 faceProto = "face_detector/opencv_face_detector.pbtxt"
 faceModel = "face_detector/opencv_face_detector_uint8.pb"
 maskModel = "mask_detector/mask_detector.model"
 entryProto = "entry_detector/MobileNetSSD_deploy.prototxt"
 entryModel = "entry_detector/MobileNetSSD_deploy.caffemodel"
 
-ageList = ['(0-2)', '(4-6)', '(8-12)', '(15-20)', '(25-32)', '(38-43)', '(48-53)', '(60-100)']
+ageList = np.array([i for i in range(0, 101)])
 genderList = ['Male', 'Female']
 classesList = ["background", "aeroplane", "bicycle", "bird", "boat",
     "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
@@ -37,8 +38,8 @@ ct = Centroid_Tracker(maxDisappeared=40, maxDistance=50)
 trackers = []
 trackableObjects = {}
 totalFrames = 0
-totalDown = 0
-totalUp = 0
+totalIn = 0
+totalOut = 0
 H = None
 W = None
 
@@ -78,6 +79,63 @@ def highlightFace(net, frame, conf_threshold=0.7):
             cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2),
                           (0, 255, 0), int(round(frameHeight/150)), 8)
     return frameOpencvDnn, faceBoxes, faces
+
+def findPassingCustomers(frames, numPass):
+    ages = []
+    genders = []
+    for frame in frames:
+        faces = HAAR_FACE_DETECTOR.detectMultiScale(frame, scaleFactor=1.3, minNeighbors=5)
+        # No faces were detected
+        if len(faces) == 0:
+            continue
+        
+        # More faces identifies in frame
+        if len(faces) != numPass:
+            new_faces = []
+            # Find closest faces to camera
+            for _ in range(numPass):
+                # Find closest face according to its height
+                face = max(faces,key=lambda item:item[3])
+                new_faces.append(face)
+                faces.remove(face)
+            faces = new_faces
+        
+        # Detect age and gender of faces
+        for (x, y, w, h) in faces:
+                if w > 130:
+                    #extract detected face
+                    detected_face = frame[int(y):int(y+h), int(x):int(x+w)]
+                    try:
+                        # Age and gender data set has 40% margin around the face - expand detected face
+                        margin = 30
+                        margin_x = int((w * margin)/100); margin_y = int((h * margin)/100)
+                        detected_face = frame[int(y-margin_y):int(y+h+margin_y),
+                        int(x-margin_x):int(x+w+margin_x)]
+                    except:
+                        print("detected face has no margin")
+                    try:
+                        #vgg-face expects inputs (224, 224, 3)
+                        detected_face = cv2.resize(detected_face, (224, 224))
+                        img_pixels = image.img_to_array(detected_face)
+                        img_pixels = np.expand_dims(img_pixels, axis = 0)
+                        img_pixels /= 255
+                        
+                        # Find out age
+                        age_distributions = ageNet.predict(img_pixels)
+                        age = str(int(np.floor(np.sum(age_distributions * ageList, axis = 1))[0]))
+                        ages.append(age)
+                        # Find out gender
+                        gender_distribution = genderNet.predict(img_pixels)[0]
+                        gender_index = np.argmax(gender_distribution)
+                        if gender_index == 0: gender = "Female"
+                        else: gender = "Male"
+                        genders.append(gender)
+
+                    except Exception as e:
+                        print("exception",str(e))
+        break
+    
+    return ages, genders
 
 camFrontOut = cv2.VideoCapture(0)
 camFrontIn = cv2.VideoCapture(1)
@@ -163,12 +221,95 @@ while True:
                     # box coordinates and then start the dlib correlation
                     # tracker
                     tracker = dlib.correlation_tracker()
-                    rect = dlib.rectangle(startX, startY, endX, endY)
+                    rect = dlib.rectangle(int(startX), int(startY), int(endX), int(endY))
                     tracker.start_track(rgb, rect)
 
                     # add the tracker to our list of trackers so we can
                     # utilize it during skip frames
                     trackers.append(tracker)
+        # otherwise, we should utilize our object *trackers* rather than
+        # object *detectors* to obtain a higher frame processing throughput
+        else:
+            hasEntered = False
+            # loop over the trackers
+            for tracker in trackers:
+
+                # update the tracker and grab the updated position
+                tracker.update(rgb)
+                pos = tracker.get_position()
+
+                # unpack the position object
+                startX = int(pos.left())
+                startY = int(pos.top())
+                endX = int(pos.right())
+                endY = int(pos.bottom())
+                # add the bounding box coordinates to the rectangles list
+                rects.append((startX, startY, endX, endY))
+        
+        # draw a horizontal line in the center of the frame -- once an
+        # object crosses this line we will determine whether they were
+        # moving 'up' or 'down'
+        cv2.line(enteranceFrame, (W // 2, 0), (W // 2, H), (0, 255, 255), 2)
+
+        # use the centroid tracker to associate the (1) old object
+        # centroids with (2) the newly computed object centroids
+        objects = ct.update(rects)
+
+        # loop over the tracked objects
+        for (objectID, centroid) in objects.items():
+            # check to see if a trackable object exists for the current
+            # object ID
+            to = trackableObjects.get(objectID, None)
+
+            # if there is no existing trackable object, create one
+            if to is None:
+                to = Trackable_Object(objectID, centroid)
+
+            # otherwise, there is a trackable object so we can utilize it
+            # to determine direction
+            else:
+                entered = 0
+                exited = 0
+                # the difference between the x-coordinate of the *current*
+                # centroid and the mean of *previous* centroids will tell
+                # us in which direction the object is moving (negative for
+                # 'left' and positive for 'right')
+                x = [c[0] for c in to.centroids]
+                direction = centroid[0] - np.mean(x)
+                to.centroids.append(centroid)
+
+                # check to see if the object has been counted or not
+                if not to.counted:
+                    # if the direction is negative (indicating the object
+                    # is moving to the left) AND the centroid is above the center
+                    # line, count the object
+                    if direction < 0 and centroid[1] < W // 2:
+                        entered += 1
+                        totalIn += 1
+                        to.counted = True
+
+                    # if the direction is positive (indicating the object
+                    # is moving to the right) AND the centroid is below the
+                    # center line, count the object
+                    elif direction > 0 and centroid[1] > W // 2:
+                        totalOut += 1
+                        exited += 1
+                        to.counted = True
+
+            # store the trackable object in dictionary
+            trackableObjects[objectID] = to
+
+        # People have entered the store
+        if entered > 0:
+            # Detect the age and gender of the customers that entered
+            ages, genders = findPassingCustomers(prevInFrames, entered)
+            # TODO: send via message queue the details
+        
+        # People have left the store
+        if exited > 0:
+            # Detect the age and gender of the customers that left
+            ages, genders = findPassingCustomers(prevInFrames, exited)
+            # TODO: send via message queue the details
     
     # Save only 10 seconds of frames
     if len(prevOutFrames) > 10:
