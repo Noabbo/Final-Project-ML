@@ -150,7 +150,7 @@ while True:
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
     if hasFrontOutFrame:
         # Detect every one second
-        if totalFrames % SKIP_FRAMES == 0:
+        if totalFrames % (SKIP_FRAMES * 5) == 0:
             # Save frame for later use
             prevOutFrames.append(frontOutFrame)
             # Find faces for mask detection
