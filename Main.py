@@ -1,3 +1,7 @@
+# People tracker and counter model: https://www.pyimagesearch.com/2018/08/13/opencv-people-counter/
+# Age and gender detection model: https://github.com/serengil/tensorflow-101/blob/master/python/age-gender-prediction-real-time.py
+# Mask model: https://github.com/J-Douglas/Face-Mask-Detection
+
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array
