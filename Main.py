@@ -1,16 +1,19 @@
 # People tracker and counter model: https://www.pyimagesearch.com/2018/08/13/opencv-people-counter/
 # Age and gender detection model: https://github.com/serengil/tensorflow-101/blob/master/python/age-gender-prediction-real-time.py
-# Mask model: https://github.com/J-Douglas/Face-Mask-Detection
-
+# Mask model: https://www.pyimagesearch.com/2020/05/04/covid-19-face-mask-detector-with-opencv-keras-tensorflow-and-deep-learning/
 from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.preprocessing.image import img_to_array
 from keras.preprocessing import image
 from cv2 import cv2
 import numpy as np
+import os
 import imutils
 import dlib
 import pika
+import base64
+import json
+import requests
 import Age_Gender_Training
 import Centroid_Tracker
 import Trackable_Object
@@ -56,6 +59,7 @@ def highlightFace(net, frame, conf_threshold=0.7):
     detections = net.forward()
     faceBoxes = []
     faces = []
+    index = 1
     for i in range(detections.shape[2]):
         confidence = detections[0, 0, i, 2]
         if confidence > conf_threshold:
@@ -82,6 +86,9 @@ def highlightFace(net, frame, conf_threshold=0.7):
             faces.append(face)
             cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2),
                           (0, 255, 0), int(round(frameHeight/150)), 8)
+            faceName = "face" + str(index) + ".jpeg"
+            cv2.imwrite(faceName, face)
+            index += 1
     return frameOpencvDnn, faceBoxes, faces
 
 def findPassingCustomers(frames, numPass):
@@ -154,16 +161,25 @@ while True:
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
     if hasFrontOutFrame:
         # Detect every one second
-        if totalFrames % (SKIP_FRAMES * 5) == 0:
+        if totalFrames % SKIP_FRAMES == 0:
             # Save frame for later use
             prevOutFrames.append(frontOutFrame)
+        # Detect every five second
+        if totalFrames % (SKIP_FRAMES * 5) == 0:
             # Find faces for mask detection
             resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
             if faceBoxes and faces:
+                # Delete existing faces with no masks
+                noMaskFacesDir = "./mask_detector/no_mask_faces/"
+                facesImg = os.listdir(noMaskFacesDir)
+                for item in facesImg:
+                    if item.endswith(".jpeg"):
+                        os.remove(os.path.join(noMaskFacesDir, item))
                 # Detect if people in line wearing masks or not
                 faces = np.array(faces, dtype="float32")
                 maskPreds = maskNet.predict(faces, batch_size=32)
-                facesNoMask = []
+                noMaskFaces = []
+                index = 1
                 for maskPred, faceBox in zip(maskPreds, faceBoxes):
                     (mask, withoutMask) = maskPred
                     mask = "Mask" if mask > withoutMask else "No Mask"
@@ -172,8 +188,15 @@ while True:
                     # cv2.imshow("LIVE", resultImg)
                     # Identifies person with no mask
                     if mask == "No Mask":
-                        facesNoMask.append(faceBox)
-                # TODO: send faces with no mask to server
+                        # Find saved image face with no mask and add to list
+                        faceImgPath = noMaskFacesDir + "face" + str(index) + ".jpeg"
+                        with open(faceImgPath, "rb") as img_file:
+                            faceImg = base64.b64encode(img_file.read())
+                        noMaskFaces.append(faceImg)
+                    index += 1
+                # Send faces with no masks as json file to server
+                showFaces = {'images': noMaskFaces}
+                r = requests.post('http://localhost:3000/images', data=json.dumps(showFaces))
     
     # Frontal Camera towards Inside
     hasFrontInFrame, frontInFrame = camFrontIn.read()
