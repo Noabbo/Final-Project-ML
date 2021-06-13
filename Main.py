@@ -138,8 +138,8 @@ def findPassingCustomers(frames, numPass):
                         # Find out gender
                         gender_distribution = genderNet.predict(img_pixels)[0]
                         gender_index = np.argmax(gender_distribution)
-                        if gender_index == 0: gender = "Female"
-                        else: gender = "Male"
+                        if gender_index == 0: gender = "F"
+                        else: gender = "M"
                         genders.append(gender)
 
                     except Exception as e:
@@ -330,13 +330,17 @@ while True:
         if entered > 0:
             # Detect the age and gender of the customers that entered
             ages, genders = findPassingCustomers(prevInFrames, entered)
-            # TODO: send via message queue the details
+            for age, gender in zip(ages, genders):
+                message = gender + "," + str(age)
+                channelEnter.basic_publish(exchange='', routing_key='entered', body=message)
         
         # People have left the store
         if exited > 0:
             # Detect the age and gender of the customers that left
             ages, genders = findPassingCustomers(prevInFrames, exited)
-            # TODO: send via message queue the details
+            for age, gender in zip(ages, genders):
+                message = gender + "," + str(age)
+                channelExit.basic_publish(exchange='', routing_key='exited', body=message)
     
     # Save only 10 seconds of frames
     if len(prevOutFrames) > 10:

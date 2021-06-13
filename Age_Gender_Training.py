@@ -75,7 +75,7 @@ def age_model():
     base_model_output = Activation('softmax')(base_model_output)
     
     age_model = Model(inputs=model.input, outputs=base_model_output)
-    age_model.load_weights("./age_detector/age_model_weights.h5")
+    age_model.load_weights("./age_model_weights.h5")
     
     return age_model
 
@@ -87,6 +87,6 @@ def gender_model():
     base_model_output = Activation('softmax')(base_model_output)
 
     gender_model = Model(inputs=model.input, outputs=base_model_output)
-    gender_model.load_weights("./gender_detector/gender_model_weights.h5")
+    gender_model.load_weights("./gender_model_weights.h5")
     
     return gender_model
