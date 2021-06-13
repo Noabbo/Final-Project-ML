@@ -149,13 +149,13 @@ def findPassingCustomers(frames, numPass):
     return ages, genders
 
 camFrontOut = cv2.VideoCapture(0)
-camFrontIn = cv2.VideoCapture(1)
-camEntrance = cv2.VideoCapture(2)
-connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-channelExit = connection.channel()
-channelExit.queue_declare(queue='exited', durable=True)
-channelEnter = connection.channel()
-channelEnter.queue_declare(queue='entered', durable=True)
+# camFrontIn = cv2.VideoCapture(1)
+# camEntrance = cv2.VideoCapture(2)
+# connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+# channelExit = connection.channel()
+# channelExit.queue_declare(queue='exited', durable=True)
+# channelEnter = connection.channel()
+# channelEnter.queue_declare(queue='entered', durable=True)
 while True:
     # Frontal Camera towards Outside
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
@@ -192,161 +192,162 @@ while True:
                         faceImgPath = noMaskFacesDir + "face" + str(index) + ".jpeg"
                         with open(faceImgPath, "rb") as img_file:
                             faceImg = base64.b64encode(img_file.read())
-                        noMaskFaces.append(faceImg)
+                            faceImgStr = faceImg.decode('utf-8')
+                        noMaskFaces.append(faceImgStr)
                     index += 1
                 # Send faces with no masks as json file to server
                 showFaces = {'images': noMaskFaces}
                 r = requests.post('http://localhost:3000/images', data=json.dumps(showFaces))
     
-    # Frontal Camera towards Inside
-    hasFrontInFrame, frontInFrame = camFrontIn.read()
-    if hasFrontInFrame:
-        # Detect every one second
-        if totalFrames % SKIP_FRAMES == 0:
-            # Save frame for later use
-            prevOutFrames.append(frontInFrame)
+    # # Frontal Camera towards Inside
+    # hasFrontInFrame, frontInFrame = camFrontIn.read()
+    # if hasFrontInFrame:
+    #     # Detect every one second
+    #     if totalFrames % SKIP_FRAMES == 0:
+    #         # Save frame for later use
+    #         prevOutFrames.append(frontInFrame)
     
-    # Entrance/Exit Camera
-    hasEnteranceFrame, enteranceFrame = camEntrance.read()
-    if hasEnteranceFrame:
-        enteranceFrame = imutils.resize(enteranceFrame, width=500)
-        rgb = cv2.cvtColor(enteranceFrame, cv2.COLOR_BGR2RGB)
-        rects = []
-        # if the frame dimensions are empty, set them
-        if W is None or H is None:
-            (H, W) = enteranceFrame.shape[:2]
-        # Detect every one second
-        if totalFrames % SKIP_FRAMES == 0:
-            trackers = []
-            # convert the frame to a blob and pass the blob through the
-            # network and obtain the detections
-            blob = cv2.dnn.blobFromImage(enteranceFrame, 0.007843, (W, H), 127.5)
-            entryNet.setInput(blob)
-            detections = entryNet.forward()
-            # loop over the detections
-            for i in np.arange(0, detections.shape[2]):
-                # extract the confidence (i.e., probability) associated
-                # with the prediction
-                confidence = detections[0, 0, i, 2]
+    # # Entrance/Exit Camera
+    # hasEnteranceFrame, enteranceFrame = camEntrance.read()
+    # if hasEnteranceFrame:
+    #     enteranceFrame = imutils.resize(enteranceFrame, width=500)
+    #     rgb = cv2.cvtColor(enteranceFrame, cv2.COLOR_BGR2RGB)
+    #     rects = []
+    #     # if the frame dimensions are empty, set them
+    #     if W is None or H is None:
+    #         (H, W) = enteranceFrame.shape[:2]
+    #     # Detect every one second
+    #     if totalFrames % SKIP_FRAMES == 0:
+    #         trackers = []
+    #         # convert the frame to a blob and pass the blob through the
+    #         # network and obtain the detections
+    #         blob = cv2.dnn.blobFromImage(enteranceFrame, 0.007843, (W, H), 127.5)
+    #         entryNet.setInput(blob)
+    #         detections = entryNet.forward()
+    #         # loop over the detections
+    #         for i in np.arange(0, detections.shape[2]):
+    #             # extract the confidence (i.e., probability) associated
+    #             # with the prediction
+    #             confidence = detections[0, 0, i, 2]
 
-                # filter out weak detections by requiring a minimum
-                # confidence
-                if confidence > 0.4:
-                    # extract the index of the class label from the
-                    # detections list
-                    idx = int(detections[0, 0, i, 1])
+    #             # filter out weak detections by requiring a minimum
+    #             # confidence
+    #             if confidence > 0.4:
+    #                 # extract the index of the class label from the
+    #                 # detections list
+    #                 idx = int(detections[0, 0, i, 1])
 
-                    # if the class label is not a person, ignore it
-                    if classesList[idx] != "person":
-                        continue
+    #                 # if the class label is not a person, ignore it
+    #                 if classesList[idx] != "person":
+    #                     continue
 
-                    # compute the (x, y)-coordinates of the bounding box for the object
-                    box = detections[0, 0, i, 3:7] * np.array([W, H, W, H])
-                    (startX, startY, endX, endY) = box.astype("int")
+    #                 # compute the (x, y)-coordinates of the bounding box for the object
+    #                 box = detections[0, 0, i, 3:7] * np.array([W, H, W, H])
+    #                 (startX, startY, endX, endY) = box.astype("int")
 
-                    # construct a dlib rectangle object from the bounding
-                    # box coordinates and then start the dlib correlation
-                    # tracker
-                    tracker = dlib.correlation_tracker()
-                    rect = dlib.rectangle(int(startX), int(startY), int(endX), int(endY))
-                    tracker.start_track(rgb, rect)
+    #                 # construct a dlib rectangle object from the bounding
+    #                 # box coordinates and then start the dlib correlation
+    #                 # tracker
+    #                 tracker = dlib.correlation_tracker()
+    #                 rect = dlib.rectangle(int(startX), int(startY), int(endX), int(endY))
+    #                 tracker.start_track(rgb, rect)
 
-                    # add the tracker to our list of trackers so we can
-                    # utilize it during skip frames
-                    trackers.append(tracker)
-        # otherwise, we should utilize our object *trackers* rather than
-        # object *detectors* to obtain a higher frame processing throughput
-        else:
-            hasEntered = False
-            # loop over the trackers
-            for tracker in trackers:
+    #                 # add the tracker to our list of trackers so we can
+    #                 # utilize it during skip frames
+    #                 trackers.append(tracker)
+    #     # otherwise, we should utilize our object *trackers* rather than
+    #     # object *detectors* to obtain a higher frame processing throughput
+    #     else:
+    #         hasEntered = False
+    #         # loop over the trackers
+    #         for tracker in trackers:
 
-                # update the tracker and grab the updated position
-                tracker.update(rgb)
-                pos = tracker.get_position()
+    #             # update the tracker and grab the updated position
+    #             tracker.update(rgb)
+    #             pos = tracker.get_position()
 
-                # unpack the position object
-                startX = int(pos.left())
-                startY = int(pos.top())
-                endX = int(pos.right())
-                endY = int(pos.bottom())
-                # add the bounding box coordinates to the rectangles list
-                rects.append((startX, startY, endX, endY))
+    #             # unpack the position object
+    #             startX = int(pos.left())
+    #             startY = int(pos.top())
+    #             endX = int(pos.right())
+    #             endY = int(pos.bottom())
+    #             # add the bounding box coordinates to the rectangles list
+    #             rects.append((startX, startY, endX, endY))
         
-        # draw a horizontal line in the center of the frame -- once an
-        # object crosses this line we will determine whether they were
-        # moving 'up' or 'down'
-        cv2.line(enteranceFrame, (W // 2, 0), (W // 2, H), (0, 255, 255), 2)
+    #     # draw a horizontal line in the center of the frame -- once an
+    #     # object crosses this line we will determine whether they were
+    #     # moving 'up' or 'down'
+    #     cv2.line(enteranceFrame, (W // 2, 0), (W // 2, H), (0, 255, 255), 2)
 
-        # use the centroid tracker to associate the (1) old object
-        # centroids with (2) the newly computed object centroids
-        objects = ct.update(rects)
+    #     # use the centroid tracker to associate the (1) old object
+    #     # centroids with (2) the newly computed object centroids
+    #     objects = ct.update(rects)
 
-        # loop over the tracked objects
-        for (objectID, centroid) in objects.items():
-            # check to see if a trackable object exists for the current
-            # object ID
-            to = trackableObjects.get(objectID, None)
+    #     # loop over the tracked objects
+    #     for (objectID, centroid) in objects.items():
+    #         # check to see if a trackable object exists for the current
+    #         # object ID
+    #         to = trackableObjects.get(objectID, None)
 
-            # if there is no existing trackable object, create one
-            if to is None:
-                to = Trackable_Object(objectID, centroid)
+    #         # if there is no existing trackable object, create one
+    #         if to is None:
+    #             to = Trackable_Object(objectID, centroid)
 
-            # otherwise, there is a trackable object so we can utilize it
-            # to determine direction
-            else:
-                entered = 0
-                exited = 0
-                # the difference between the x-coordinate of the *current*
-                # centroid and the mean of *previous* centroids will tell
-                # us in which direction the object is moving (negative for
-                # 'left' and positive for 'right')
-                x = [c[0] for c in to.centroids]
-                direction = centroid[0] - np.mean(x)
-                to.centroids.append(centroid)
+    #         # otherwise, there is a trackable object so we can utilize it
+    #         # to determine direction
+    #         else:
+    #             entered = 0
+    #             exited = 0
+    #             # the difference between the x-coordinate of the *current*
+    #             # centroid and the mean of *previous* centroids will tell
+    #             # us in which direction the object is moving (negative for
+    #             # 'left' and positive for 'right')
+    #             x = [c[0] for c in to.centroids]
+    #             direction = centroid[0] - np.mean(x)
+    #             to.centroids.append(centroid)
 
-                # check to see if the object has been counted or not
-                if not to.counted:
-                    # if the direction is negative (indicating the object
-                    # is moving to the left) AND the centroid is above the center
-                    # line, count the object
-                    if direction < 0 and centroid[1] < W // 2:
-                        entered += 1
-                        totalIn += 1
-                        to.counted = True
+    #             # check to see if the object has been counted or not
+    #             if not to.counted:
+    #                 # if the direction is negative (indicating the object
+    #                 # is moving to the left) AND the centroid is above the center
+    #                 # line, count the object
+    #                 if direction < 0 and centroid[1] < W // 2:
+    #                     entered += 1
+    #                     totalIn += 1
+    #                     to.counted = True
 
-                    # if the direction is positive (indicating the object
-                    # is moving to the right) AND the centroid is below the
-                    # center line, count the object
-                    elif direction > 0 and centroid[1] > W // 2:
-                        totalOut += 1
-                        exited += 1
-                        to.counted = True
+    #                 # if the direction is positive (indicating the object
+    #                 # is moving to the right) AND the centroid is below the
+    #                 # center line, count the object
+    #                 elif direction > 0 and centroid[1] > W // 2:
+    #                     totalOut += 1
+    #                     exited += 1
+    #                     to.counted = True
 
-            # store the trackable object in dictionary
-            trackableObjects[objectID] = to
+    #         # store the trackable object in dictionary
+    #         trackableObjects[objectID] = to
 
-        # People have entered the store
-        if entered > 0:
-            # Detect the age and gender of the customers that entered
-            ages, genders = findPassingCustomers(prevInFrames, entered)
-            for age, gender in zip(ages, genders):
-                message = gender + "," + str(age)
-                channelEnter.basic_publish(exchange='', routing_key='entered', body=message)
+    #     # People have entered the store
+    #     if entered > 0:
+    #         # Detect the age and gender of the customers that entered
+    #         ages, genders = findPassingCustomers(prevInFrames, entered)
+    #         for age, gender in zip(ages, genders):
+    #             message = gender + "," + str(age)
+    #             channelEnter.basic_publish(exchange='', routing_key='entered', body=message)
         
-        # People have left the store
-        if exited > 0:
-            # Detect the age and gender of the customers that left
-            ages, genders = findPassingCustomers(prevInFrames, exited)
-            for age, gender in zip(ages, genders):
-                message = gender + "," + str(age)
-                channelExit.basic_publish(exchange='', routing_key='exited', body=message)
+    #     # People have left the store
+    #     if exited > 0:
+    #         # Detect the age and gender of the customers that left
+    #         ages, genders = findPassingCustomers(prevInFrames, exited)
+    #         for age, gender in zip(ages, genders):
+    #             message = gender + "," + str(age)
+    #             channelExit.basic_publish(exchange='', routing_key='exited', body=message)
     
     # Save only 10 seconds of frames
     if len(prevOutFrames) > 10:
         prevOutFrames.clear()
-    if len(prevInFrames) > 10:
-        prevInFrames.clear()
+    # if len(prevInFrames) > 10:
+    #     prevInFrames.clear()
     
     totalFrames += 1
 
@@ -355,7 +356,7 @@ while True:
         break
 
 camFrontOut.release()
-camFrontIn.release()
-camEntrance.release()
-connection.close()
+# camFrontIn.release()
+# camEntrance.release()
+# connection.close()
 cv2.destroyAllWindows()
