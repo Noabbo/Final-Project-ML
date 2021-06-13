@@ -192,12 +192,12 @@ while True:
                         faceImgPath = noMaskFacesDir + "face" + str(index) + ".jpeg"
                         with open(faceImgPath, "rb") as img_file:
                             faceImg = base64.b64encode(img_file.read())
-                            faceImgStr = faceImg.decode('utf-8')
+                            faceImgStr = 'data:image/jpeg;base64,' + faceImg.decode('utf-8')
                         noMaskFaces.append(faceImgStr)
                     index += 1
                 # Send faces with no masks as json file to server
                 showFaces = {'images': noMaskFaces}
-                r = requests.post('http://localhost:3000/images', data=json.dumps(showFaces))
+                r = requests.post('http://localhost:3000/images', json=showFaces)
     
     # # Frontal Camera towards Inside
     # hasFrontInFrame, frontInFrame = camFrontIn.read()
