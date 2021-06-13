@@ -15,8 +15,8 @@ import base64
 import json
 import requests
 import Age_Gender_Training
-import Centroid_Tracker
-import Trackable_Object
+from Centroid_Tracker import Centroid_Tracker
+from Trackable_Object import Trackable_Object
 
 HAAR_FACE_DETECTOR = cv2.CascadeClassifier('./haarcascade_frontalface_default.xml')
 faceProto = "face_detector/opencv_face_detector.pbtxt"
@@ -86,7 +86,7 @@ def highlightFace(net, frame, conf_threshold=0.7):
             faces.append(face)
             cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2),
                           (0, 255, 0), int(round(frameHeight/150)), 8)
-            faceName = "face" + str(index) + ".jpeg"
+            faceName = "./mask_detector/no_mask_faces/face" + str(index) + ".jpeg"
             cv2.imwrite(faceName, face)
             index += 1
     return frameOpencvDnn, faceBoxes, faces
@@ -153,9 +153,9 @@ camFrontIn = cv2.VideoCapture(1)
 camEntrance = cv2.VideoCapture(2)
 connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
 channelExit = connection.channel()
-channelExit.queue_declare(queue='exited')
+channelExit.queue_declare(queue='exited', durable=True)
 channelEnter = connection.channel()
-channelEnter.queue_declare(queue='entered')
+channelEnter.queue_declare(queue='entered', durable=True)
 while True:
     # Frontal Camera towards Outside
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
@@ -166,15 +166,15 @@ while True:
             prevOutFrames.append(frontOutFrame)
         # Detect every five second
         if totalFrames % (SKIP_FRAMES * 5) == 0:
+            # Delete existing faces with no masks
+            noMaskFacesDir = "./mask_detector/no_mask_faces/"
+            facesImg = os.listdir(noMaskFacesDir)
+            for item in facesImg:
+                if item.endswith(".jpeg"):
+                    os.remove(os.path.join(noMaskFacesDir, item))
             # Find faces for mask detection
             resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
             if faceBoxes and faces:
-                # Delete existing faces with no masks
-                noMaskFacesDir = "./mask_detector/no_mask_faces/"
-                facesImg = os.listdir(noMaskFacesDir)
-                for item in facesImg:
-                    if item.endswith(".jpeg"):
-                        os.remove(os.path.join(noMaskFacesDir, item))
                 # Detect if people in line wearing masks or not
                 faces = np.array(faces, dtype="float32")
                 maskPreds = maskNet.predict(faces, batch_size=32)
