@@ -14,13 +14,14 @@ import pika
 import base64
 import json
 import requests
+from tensorflow.python.keras.backend import hard_sigmoid
 import Age_Gender_Training
 from Centroid_Tracker import Centroid_Tracker
 from Trackable_Object import Trackable_Object
 
 HAAR_FACE_DETECTOR = cv2.CascadeClassifier('./haarcascade_frontalface_default.xml')
-faceProto = "face_detector/opencv_face_detector.pbtxt"
-faceModel = "face_detector/opencv_face_detector_uint8.pb"
+faceWeights = "face_detector/res10_300x300_ssd_iter_140000.caffemodel"
+faceModel = "face_detector/deploy.prototxt"
 maskModel = "mask_detector/mask_detector.model"
 entryProto = "entry_detector/MobileNetSSD_deploy.prototxt"
 entryModel = "entry_detector/MobileNetSSD_deploy.caffemodel"
@@ -32,7 +33,7 @@ classesList = ["background", "aeroplane", "bicycle", "bird", "boat",
     "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
     "sofa", "train", "tvmonitor"]
 
-faceNet = cv2.dnn.readNet(faceModel, faceProto)
+faceNet = cv2.dnn.readNet(faceModel, faceWeights)
 ageNet = Age_Gender_Training.age_model()
 genderNet = Age_Gender_Training.gender_model()
 maskNet = load_model(maskModel)
@@ -50,11 +51,9 @@ totalOut = 0
 H = None
 W = None
 
-def highlightFace(net, frame, conf_threshold=0.7):
-    frameOpencvDnn = frame.copy()
-    frameHeight = frameOpencvDnn.shape[0]
-    frameWidth = frameOpencvDnn.shape[1]
-    blob = cv2.dnn.blobFromImage(frameOpencvDnn, 1.0, (300, 300), [104, 117, 123], True, False)
+def highlightFace(net, frame, conf_threshold=0.5):
+    (h, w) = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104.0, 177.0, 123.0))
     net.setInput(blob)
     detections = net.forward()
     faceBoxes = []
@@ -63,33 +62,33 @@ def highlightFace(net, frame, conf_threshold=0.7):
     for i in range(detections.shape[2]):
         confidence = detections[0, 0, i, 2]
         if confidence > conf_threshold:
-            x1 = int(detections[0, 0, i, 3]*frameWidth)
-            y1 = int(detections[0, 0, i, 4]*frameHeight)
-            x2 = int(detections[0, 0, i, 5]*frameWidth)
-            y2 = int(detections[0, 0, i, 6]*frameHeight)
+            x1 = int(detections[0, 0, i, 3]*w)
+            y1 = int(detections[0, 0, i, 4]*h)
+            x2 = int(detections[0, 0, i, 5]*w)
+            y2 = int(detections[0, 0, i, 6]*h)
             faceBoxes.append([x1, y1, x2, y2])
             # compute the (x, y)-coordinates of the bounding box for the object
-            box = detections[0, 0, i, 3:7] * np.array([frameWidth, frameHeight, frameWidth, frameHeight])
+            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
             (startX, startY, endX, endY) = box.astype("int")
             # ensure the bounding boxes fall within the dimensions of
             # the frame
             (startX, startY) = (max(0, startX), max(0, startY))
-            (endX, endY) = (min(frameWidth - 1, endX), min(frameHeight - 1, endY))
+            (endX, endY) = (min(w - 1, endX), min(h - 1, endY))
             # extract the face ROI, convert it from BGR to RGB channel
             # ordering, resize it to 224x224, and preprocess it
             face = frame[startY:endY, startX:endX]
+            faceName = "./mask_detector/no_mask_faces/face" + str(index) + ".jpeg"
+            cv2.imwrite(faceName, face)
+            index += 1
             face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
             face = cv2.resize(face, (224, 224))
             face = img_to_array(face)
             face = preprocess_input(face)
             # add the face and bounding boxes to their respective lists
             faces.append(face)
-            cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2),
-                          (0, 255, 0), int(round(frameHeight/150)), 8)
-            faceName = "./mask_detector/no_mask_faces/face" + str(index) + ".jpeg"
-            cv2.imwrite(faceName, face)
-            index += 1
-    return frameOpencvDnn, faceBoxes, faces
+            # cv2.rectangle(frameOpencvDnn, (x1, y1), (x2, y2),
+            #               (0, 255, 0), int(round(frameHeight/150)), 8)
+    return frame, faceBoxes, faces
 
 def findPassingCustomers(frames, numPass):
     ages = []
@@ -157,6 +156,9 @@ camFrontOut = cv2.VideoCapture(0)
 # channelEnter = connection.channel()
 # channelEnter.queue_declare(queue='entered', durable=True)
 while True:
+    k = cv2.waitKey(30) & 0xff
+    if k == 27:
+        break
     # Frontal Camera towards Outside
     hasFrontOutFrame, frontOutFrame = camFrontOut.read()
     if hasFrontOutFrame:
@@ -350,10 +352,6 @@ while True:
     #     prevInFrames.clear()
     
     totalFrames += 1
-
-    k = cv2.waitKey(30) & 0xff
-    if k == 27:
-        break
 
 camFrontOut.release()
 # camFrontIn.release()
