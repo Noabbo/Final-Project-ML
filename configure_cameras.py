@@ -1,8 +1,8 @@
 from cv2 import cv2
 
-cam0 = cv2.VideoCapture(0)
-cam1 = cv2.VideoCapture(1)
-cam2 = cv2.VideoCapture(2)
+cam0 = cv2.VideoCapture(1)
+cam1 = cv2.VideoCapture(2)
+cam2 = cv2.VideoCapture(3)
 while True:
     ret, frame = cam0.read()
     cv2.imshow('CAM0', frame)
