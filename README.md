@@ -13,7 +13,8 @@ After you executed the First-Time User part (whether in this session or in previ
 1. Connect the cameras.
 2. Run the file configure_cameras.py to identify the indexes of the cameras used in running the machines.
 3. Update the indexes in the file Main.py according to the findings of the previous step.
-4. Run the file Main.py for running the machines.
+4. Update the IP address of the server in the Main.py file.
+5. Run the file Main.py for running the machines.
 
 ## Additional information
 For more information, contact at noabbo96@gmail.com
