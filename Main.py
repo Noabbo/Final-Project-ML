@@ -38,7 +38,7 @@ genderNet = Age_Gender_Training.gender_model()
 maskNet = load_model(maskModel)
 entryNet = cv2.dnn.readNetFromCaffe(entryProto, entryModel)
 SKIP_FRAMES = 60
-SKIP_FRAMES_COUNTER = 60
+SKIP_FRAMES_COUNTER = 100
 SERVER_IP = '192.168.14.172'
 prevOutFrames = []
 prevInFrames = []
@@ -81,11 +81,13 @@ def highlightFace(net, frame, conf_threshold=0.5):
             # Save image of detected face as a square
             if faceHeight > faceWidth:
                 reminder = int((faceHeight - faceWidth) / 2)
-                startX -= reminder
+                if (startX - reminder) > 0:
+                    startX -= reminder
                 endX += reminder
             elif faceWidth > faceHeight:
                 reminder = int((faceWidth - faceHeight) / 2)
-                startY -= reminder
+                if (startY - reminder) > 0:
+                    startY -= reminder
                 endY += reminder
 
             face = frame[startY:endY, startX:endX]
@@ -163,9 +165,10 @@ def findPassingCustomers(frames, numPass):
     return ages, genders
 
 camFrontOut = cv2.VideoCapture(2, cv2.CAP_DSHOW)
-camFrontIn = cv2.VideoCapture(3, cv2.CAP_DSHOW)
-camEntrance = cv2.VideoCapture(1, cv2.CAP_DSHOW)
-time.sleep(2.0)
+camFront = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+camEntrance = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+time.sleep(3.0)
+print("Go!")
 connection = pika.BlockingConnection(pika.ConnectionParameters(SERVER_IP))
 channelExit = connection.channel()
 channelExit.queue_declare(queue='exited', durable=True)
@@ -180,11 +183,11 @@ while True:
     if hasFrontOutFrame:
         # Detect every one second
         if totalFrames % SKIP_FRAMES == 0:
-            # frontOutFrameLarge = imutils.resize(frontOutFrame, width=3000)
-            frontOutFrame = imutils.resize(frontOutFrame, width=3000)
+            frontOutFrameLarge = imutils.resize(frontOutFrame, width=3000)
             # Save frame for later use
-            prevOutFrames.append(frontOutFrame)
+            prevOutFrames.append(frontOutFrameLarge)
             # Delete existing faces with no masks
+            # frontOutFrame = imutils.resize(frontOutFrame, width=2000)
             noMaskFacesDir = "./mask_detector/no_mask_faces/"
             facesImg = os.listdir(noMaskFacesDir)
             for item in facesImg:
@@ -193,6 +196,7 @@ while True:
             # Find faces for mask detection
             resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
             if faceBoxes and faces:
+                print("Face!")
                 # Detect if people in line wearing masks or not
                 faces = np.array(faces, dtype="float32")
                 maskPreds = maskNet.predict(faces, batch_size=32)
@@ -219,14 +223,13 @@ while True:
                 r = requests.post('http://'+ SERVER_IP +':3000/entryStatus', json=entryStatus)
     
     # Frontal Camera towards Inside
-    hasFrontInFrame, frontInFrame = camFrontIn.read()
+    hasFrontInFrame, frontInFrame = camFront.read()
     if hasFrontInFrame:
         # Detect every one second
         if totalFrames % SKIP_FRAMES == 0:
             frontInFrame = imutils.resize(frontInFrame, width=3000)
             # Save frame for later use
             prevInFrames.append(frontInFrame)
-        #     ages, genders = findPassingCustomers(frontInFrame, entered)
     
     # Entrance/Exit Camera
     hasEnteranceFrame, enteranceFrame = camEntrance.read()
@@ -339,7 +342,7 @@ while True:
             ages = []
             genders = []
             # Detect the age and gender of the customers that entered
-            ages, genders = findPassingCustomers(prevOutFrames, entered)
+            ages, genders = findPassingCustomers(prevInFrames, entered)
             if len(ages) == 0 and len(genders) == 0:
                 message = "M-0"
                 print(message)
@@ -356,17 +359,9 @@ while True:
             ages = []
             genders = []
             # Detect the age and gender of the customers that left
-            ages, genders = findPassingCustomers(prevInFrames, exited)
-            if len(ages) == 0 and len(genders) == 0:
-                message = "M-0"
-                print(message)
-                channelExit.basic_publish(exchange='', routing_key='exited', body=message)
-            else:
-                for age, gender in zip(ages, genders):
-                    message = gender + "-" + str(age)
-                    print(message)
-                    channelExit.basic_publish(exchange='', routing_key='exited', body=message)
-            prevInFrames.clear()
+            message = "M-0"
+            print(message)
+            channelExit.basic_publish(exchange='', routing_key='exited', body=message)
     
     # Save only 10 seconds of frames
     if len(prevOutFrames) > 10:
@@ -377,7 +372,7 @@ while True:
     totalFrames += 1
 
 camFrontOut.release()
-camFrontIn.release()
+camFront.release()
 camEntrance.release()
 connection.close()
 cv2.destroyAllWindows()
