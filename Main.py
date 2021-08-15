@@ -187,7 +187,6 @@ while True:
             # Save frame for later use
             prevOutFrames.append(frontOutFrameLarge)
             # Delete existing faces with no masks
-            # frontOutFrame = imutils.resize(frontOutFrame, width=2000)
             noMaskFacesDir = "./mask_detector/no_mask_faces/"
             facesImg = os.listdir(noMaskFacesDir)
             for item in facesImg:
@@ -196,7 +195,6 @@ while True:
             # Find faces for mask detection
             resultImg, faceBoxes, faces = highlightFace(faceNet, frontOutFrame)
             if faceBoxes and faces:
-                print("Face!")
                 # Detect if people in line wearing masks or not
                 faces = np.array(faces, dtype="float32")
                 maskPreds = maskNet.predict(faces, batch_size=32)
@@ -207,7 +205,6 @@ while True:
                     mask = "Mask" if mask > withoutMask else "No Mask"
                     # Identifies person with no mask
                     if mask == "No Mask":
-                        print("No Mask!")
                         # Find saved image face with no mask and add to list
                         faceImgPath = noMaskFacesDir + "face" + str(index) + ".jpeg"
                         with open(faceImgPath, "rb") as img_file:
