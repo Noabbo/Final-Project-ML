@@ -1,3 +1,5 @@
+# This file is meant for show-casing the mask detection abilities of the machine.
+
 # People tracker and counter model: https://www.pyimagesearch.com/2018/08/13/opencv-people-counter/
 # Age and gender detection model: https://github.com/serengil/tensorflow-101/blob/master/python/age-gender-prediction-real-time.py
 # Mask model: https://www.pyimagesearch.com/2020/05/04/covid-19-face-mask-detector-with-opencv-keras-tensorflow-and-deep-learning/
@@ -14,7 +16,6 @@ import dlib
 import pika
 import base64
 import requests
-from tensorflow.python.keras.backend import hard_sigmoid
 
 HAAR_FACE_DETECTOR = cv2.CascadeClassifier('./haarcascade_frontalface_default.xml')
 faceWeights = "face_detector/res10_300x300_ssd_iter_140000.caffemodel"
@@ -37,7 +38,7 @@ maskNet = load_model(maskModel)
 entryNet = cv2.dnn.readNetFromCaffe(entryProto, entryModel)
 SKIP_FRAMES = 60
 SKIP_FRAMES_COUNTER = 60
-SERVER_IP = '192.168.14.172'
+SERVER_IP = 'covid-enforcer.ddns.net'
 prevOutFrames = []
 prevInFrames = []
 # hasEntered = False
@@ -175,8 +176,9 @@ while True:
     if hasFrontOutFrame:
         # Detect every one second
         if totalFrames % SKIP_FRAMES == 0:
+            frontOutFrameLarge = imutils.resize(frontOutFrame, width=3000)
             # Save frame for later use
-            prevOutFrames.append(frontOutFrame)
+            prevOutFrames.append(frontOutFrameLarge)
             # Delete existing faces with no masks
             noMaskFacesDir = "./mask_detector/no_mask_faces/"
             facesImg = os.listdir(noMaskFacesDir)
@@ -194,9 +196,6 @@ while True:
                 for maskPred, faceBox in zip(maskPreds, faceBoxes):
                     (mask, withoutMask) = maskPred
                     mask = "Mask" if mask > withoutMask else "No Mask"
-                    # cv2.putText(resultImg, f'{mask}', (faceBox[0], faceBox[1]-10),
-                    # cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,255), 2, cv2.LINE_AA)
-                    # cv2.imshow("LIVE", resultImg)
                     # Identifies person with no mask
                     if mask == "No Mask":
                         # Find saved image face with no mask and add to list
@@ -206,13 +205,11 @@ while True:
                             faceImgStr = 'data:image/jpeg;base64,' + faceImg.decode('utf-8')
                         noMaskFaces.append(faceImgStr)
                     index += 1
-                # Send faces with no masks as json file to server
+                # Send faces with no masks and number of people in line as json file to server
                 entryStatus = {'images': noMaskFaces, 'waiting': len(faces)}
-                print("No Mask! waiting: " + str(len(faces)))
                 r = requests.post('http://'+ SERVER_IP +':3000/entryStatus', json=entryStatus)
             else:
                 entryStatus = {'images': [], 'waiting': 0}
-                print("No Mask! waiting: 0")
                 r = requests.post('http://'+ SERVER_IP +':3000/entryStatus', json=entryStatus)
     
     # # Frontal Camera towards Inside
